@@ -1,0 +1,15 @@
+# Build output
+/caddy
+/caddy.exe
+*.exe
+
+# API reference downloaded from Alibaba Cloud (not redistributed)
+/api-docs.json
+
+# Test output
+*.test
+coverage.out
+
+# Editor files
+.idea/
+.vscode/
