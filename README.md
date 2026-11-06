@@ -201,6 +201,54 @@ $env:ALIESA_ACCESS_KEY_SECRET = "your-access-key-secret"
 - `SetRecords` 通过“删除同名同类型记录再创建”实现。ESA 没有批量事务，因此该操作不是原子的；DNS-01 流程使用的是 `AppendRecords` / `DeleteRecords`，不受影响。重建后的 A/AAAA、CNAME 记录，其代理状态由 `proxied` 配置或站点接入类型决定。
 - 记录操作使用阿里云 RPC 签名（HMAC-SHA1），与官方 ESA SDK 一致。
 
+## 故障排查：No TXT record found
+
+阿里云 ESA 的权威 DNS 在多个节点之间同步记录可能需要几秒到几十秒。实测中，同一个 TXT 记录可能先出现在某一个权威 NS 上，随后又短暂消失，最后才在两个 NS 上同时可见。
+
+这会导致 Caddy 的传播检查在一个 NS 上看到记录后继续提交验证，但 Let's Encrypt 查询到另一个尚未同步的节点，最终报错：
+
+```text
+No TXT record found at _acme-challenge.example.com
+```
+
+建议在站点的 `tls` 块中增加传播延迟和超时：
+
+```caddyfile
+example.com {
+    tls {
+        dns aliesa {
+            access_key_id {env.ALIESA_ACCESS_KEY_ID}
+            access_key_secret {env.ALIESA_ACCESS_KEY_SECRET}
+        }
+
+        propagation_delay 30s
+        propagation_timeout 5m
+    }
+}
+```
+
+如果使用全局 `acme_dns`，也可以为需要签发的站点单独加：
+
+```caddyfile
+{
+    acme_dns aliesa {
+        access_key_id {env.ALIESA_ACCESS_KEY_ID}
+        access_key_secret {env.ALIESA_ACCESS_KEY_SECRET}
+    }
+}
+
+example.com {
+    tls {
+        propagation_delay 30s
+        propagation_timeout 5m
+    }
+}
+```
+
+`propagation_delay` 会先等待一段时间再检查 DNS，给 ESA 的所有权威节点留出同步时间。若仍然偶发失败，可以提高到 `45s` 或 `60s`。
+
+另外，失败的验证可能在 CA 的递归 DNS 中留下最长约 5 分钟的负缓存；如果刚失败过，建议等待几分钟再重试。
+
 ## 开发
 
 ```bash
